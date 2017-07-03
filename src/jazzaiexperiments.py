@@ -238,7 +238,7 @@ def lstm_load_weights(model, weights_filepath):
 
 def lstm_train_on_midi_input(tune_name,
                              midi_data_dir="../data/midi/",
-                             checkpoints_data_dir="../data/model/",
+                             checkpoints_data_dir="../data/models/",
                              input_filepath=None,
                              weights_filepath=None,
                              seq_length=10,

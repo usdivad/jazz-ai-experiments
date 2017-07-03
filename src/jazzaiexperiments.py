@@ -10,14 +10,25 @@ import mido
 import numpy as np
 
 
-def midi_create_filepath(tune_name, data_dir):
+# -------- MIDI functions --------
+
+def midi_create_input_filepath(tune_name, data_dir):
     """Create a path to a MIDI file, given a tune name."""
     midi_filename = "{}.mid".format(tune_name)
     midi_filepath = os.path.join(data_dir, midi_filename)
     return midi_filepath
 
 
-def midi_load_melody_track(filepath):
+def midi_create_output_filepath(tune_name, data_dir):
+    """Create a path to a MIDI output file, given a tune name."""
+    curr_datetime = str(datetime.datetime.now())
+    curr_datetime = re.sub("\W+", "", curr_datetime)
+    out_filename = "out_{}_{}.mid".format(tune_name, curr_datetime)
+    out_filepath = os.path.join(data_dir, out_filename)
+    return out_filepath
+
+
+def midi_load_melody_from_file(filepath):
     """Load the melody track from a MIDI file."""
     midi_file = mido.MidiFile(filepath)
     midi_track = midi_file.tracks[0]
@@ -88,10 +99,10 @@ def midi_split_subsequences(note_events, seq_length=10):
     note_to_int, int_to_note = midi_map_note_to_int(note_events)
 
     for i in range(len(note_events) - seq_length):
-        seq_input = note_events[i:i + seq_length]
-        seq_output = note_events[i + seq_length]
-        data_input.append([note_to_int[note] for note in seq_input])
-        data_output.append(note_to_int[seq_output])
+        seqs_input = note_events[i:i + seq_length]
+        seqs_output = note_events[i + seq_length]
+        data_input.append([note_to_int[note] for note in seqs_input])
+        data_output.append(note_to_int[seqs_output])
 
     return (data_input, data_output)
 
@@ -110,6 +121,64 @@ def midi_format_for_lstm(data_input, data_output,
 
     return (x, y)
 
+
+def midi_write_file(note_events, output_filepath,
+                    midi_source_filepath=None):
+    """Write note events to MIDI file.
+
+    Convert the sequence of note tuples into a sequence of MIDI notes,
+    and then write to MIDI file.
+    """
+    # Create MIDI file and track
+    midi_file_out = mido.MidiFile()
+    midi_track_out = mido.MidiTrack()
+    midi_file_out.tracks.append(midi_track_out)
+
+    # Append "headers" (track name, tempo, key, time signature)
+    if midi_source_filepath is not None:
+        midi_track = midi_load_melody_from_file(midi_source_filepath)
+        for message in midi_track[:4]:
+            midi_track_out.append(message)
+        else:
+            pass
+
+    # Add notes
+    prev_time = 0
+    note_events_keys = midi_get_note_event_keys()
+
+    # Note times get all bunched together, so we stretch them out
+    # a little bit manually here...
+    time_multiplier = 2  # Art Pepper - Anthropology
+    time_multiplier = 0.02  # Coleman Hawkins - Body and Soul
+
+    for note in note_events:
+        # Note on/off pairs
+        note = dict((note_events_keys[i], note[i]) for i, _ in enumerate(note))
+        noteon_time = int(note["noteon_time"] * time_multiplier)
+        noteoff_time = int(note["noteoff_time"] * time_multiplier)
+        curr_time_noteon = prev_time + noteon_time
+        curr_time_noteoff = prev_time + noteoff_time
+        # prev_time = curr_time_noteoff
+        message_noteon = mido.Message("note_on",
+                                      note=note["noteon_pitch"],
+                                      velocity=note["noteon_velocity"],
+                                      time=curr_time_noteon)
+        message_noteoff = mido.Message("note_off",
+                                       note=note["noteon_pitch"],
+                                       velocity=note["noteon_velocity"],
+                                       time=curr_time_noteoff)
+        midi_track_out.append(message_noteon)
+        midi_track_out.append(message_noteoff)
+
+    # Save file to disk
+    midi_file_out.save(output_filepath)
+
+    # for message in midi_track_out[4:20]:
+    #     print(message)
+    return output_filepath
+
+
+# -------- LSTM functions --------
 
 def lstm_create(x_shape, y_shape,
                 num_units=256,
@@ -160,33 +229,134 @@ def lstm_fit_model(model, x, y,
     return model
 
 
-def lstm_train_on_input(tune_name,
-                        midi_data_dir,
-                        checkpoints_data_dir,
-                        num_epochs=100,
-                        mode="single_melody"):
+def lstm_load_weights(model, weights_filepath):
+    """Load weights for a model."""
+    model.load_weights(weights_filepath)
+    model.compile(loss="categorical_crossentropy", optimizer="adam")
+    return model
+
+
+def lstm_train_on_midi_input(tune_name,
+                             midi_data_dir,
+                             checkpoints_data_dir,
+                             weights_filepath=None,
+                             seq_length=10,
+                             num_epochs=100,
+                             mode="single_melody"):
     """Build and train an LSTM from an input MIDI file."""
     # Create note events
-    input_filepath = midi_create_filepath(tune_name, midi_data_dir)
-    midi_track = midi_load_melody_track(input_filepath)
+    input_filepath = midi_create_input_filepath(tune_name, midi_data_dir)
+    midi_track = midi_load_melody_from_file(input_filepath)
     note_pairs = midi_extract_note_pairs(midi_track)
     note_pairs = midi_normalize_velocities(note_pairs, interval=10)
     note_events = midi_create_note_events(note_pairs)
+    print("Created note events from {}".format(input_filepath))
 
     # Format note data to feed into network
     note_set = midi_create_note_set(note_events)
-    data_input, data_output = midi_split_subsequences(note_events,
-                                                      seq_length=10)
-    x, y = midi_format_for_lstm(data_input, data_output,
-                                num_seqs=len(data_input),
-                                seq_length=len(data_input[0]),
-                                num_unique_notes=len(note_set))
+    seqs_input, seqs_output = midi_split_subsequences(note_events,
+                                                      seq_length=seq_length)
+    num_seqs = len(seqs_input)
+    seq_length = len(seqs_input[0])
+    num_unique_notes = len(note_set)
+    x, y = midi_format_for_lstm(seqs_input, seqs_output,
+                                num_seqs=num_seqs,
+                                seq_length=seq_length,
+                                num_unique_notes=num_unique_notes)
+    print("Formatted note data ({} seqs of length {}, "
+          "{} unique notes)".format(num_seqs, seq_length, num_unique_notes))
 
-    # Create and train LSTM
+    # Create LSTM
     model = lstm_create(x.shape, y.shape, num_units=256, dropout_rate=0.2)
-    callbacks = lstm_setup_callbacks(tune_name, checkpoints_data_dir)
-    model = lstm_fit_model(model, x, y,
-                           num_epochs=num_epochs,
-                           batch_size=32,
-                           callbacks=callbacks)
-    return model
+    print("Created model")
+
+    # Train LSTM, or load from weights
+    if weights_filepath is None:
+        callbacks = lstm_setup_callbacks(tune_name, checkpoints_data_dir)
+        model = lstm_fit_model(model, x, y,
+                               num_epochs=num_epochs,
+                               batch_size=32,
+                               callbacks=callbacks)
+        print("Trained model over {} epochs".format(num_epochs))
+    else:
+        model = lstm_load_weights(model, weights_filepath)
+        print("Loaded weights from {}".format(weights_filepath))
+
+    return (model, note_events, input_filepath)
+
+
+def lstm_construct_input_seq(note_events, seq_length,
+                             random_seed=False):
+    """Construct an input sequence, given note events and sequence length."""
+    seqs_input, seqs_output = midi_split_subsequences(note_events,
+                                                      seq_length=seq_length)
+    seq_in = seqs_input[0]
+    if random_seed:
+        seq_in = seqs_input[np.random.randint(len(seqs_input))]
+    return seq_in
+
+
+def lstm_generate_notes(model, note_events, seq_in,
+                        num_notes_to_generate=100,
+                        batch_size=32,
+                        add_seed_to_output=False):
+    """Generate notes given a model, note events, and input sequence."""
+    notes_out = []
+    _, int_to_note = midi_map_note_to_int(note_events)
+    num_unique_notes = len(midi_create_note_set(note_events))
+
+    if add_seed_to_output:
+        seq_in_notes = [int_to_note[i] for i in seq_in]
+        notes_out.extend(seq_in_notes)
+
+    for i in range(num_notes_to_generate):
+        # Reshape and normalize
+        x = np.reshape(seq_in, (1, len(seq_in), 1))  # Reshape
+        x = x / float(num_unique_notes)  # Normalize
+
+        # Make the prediction
+        pred = model.predict(x, batch_size=batch_size, verbose=0)
+
+        # Get output note
+        note_idx = np.argmax(pred)
+        note = int_to_note[note_idx]
+
+        # Add output note to list
+        notes_out.append(note)
+
+        # Add output note to input sequence, and move forward by one note
+        seq_in.append(note_idx)
+        seq_in = seq_in[1:len(seq_in)]
+
+    return notes_out
+
+
+def lstm_generate_midi_output(model, note_events,
+                              mode="single_melody",
+                              num_notes_to_generate=100,
+                              batch_size=32,
+                              random_seed=False,
+                              add_seed_to_output=False,
+                              midi_source_filepath=None,
+                              tune_name="output",
+                              data_dir="../data/output/"):
+    """Generate note output, given a trained model."""
+    # Construct input sequence
+    seq_in = lstm_construct_input_seq(note_events, model.input_shape[1],
+                                      random_seed=random_seed)
+    print("Constructed input sequence: {}".format(seq_in))
+
+    # Generate the notes!
+    num_notes = num_notes_to_generate
+    notes_out = lstm_generate_notes(model, note_events, seq_in,
+                                    num_notes_to_generate=num_notes,
+                                    batch_size=batch_size,
+                                    add_seed_to_output=add_seed_to_output)
+    print("Generated {} notes".format(num_notes))
+
+    # Write output to MIDI file
+    output_filepath = midi_create_output_filepath(tune_name, data_dir)
+    midi_write_file(notes_out, output_filepath,
+                    midi_source_filepath=midi_source_filepath)
+    print("Wrote to MIDI file at {}".format(output_filepath))
+    return notes_out

@@ -35,15 +35,15 @@ def midi_load_melody_from_file(filepath):
     return midi_track
 
 
-def midi_extract_notes(track):
-    """Extract notes from a MIDI track."""
+def midi_extract_note_messages(track):
+    """Extract note messages from a MIDI track."""
     return [msg for msg in track
             if msg.type == "note_on" or msg.type == "note_off"]
 
 
 def midi_extract_note_pairs(track):
     """Extract note on/off pairs from a MIDI track."""
-    notes = midi_extract_notes(track)
+    notes = midi_extract_note_messages(track)
     note_pairs = [(notes[i], notes[i + 1]) for i, _ in enumerate(notes[:-1])
                   if notes[i].type == "note_on" and
                   notes[i + 1].type == "note_off" and

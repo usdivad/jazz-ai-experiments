@@ -12,14 +12,14 @@ import numpy as np
 
 # -------- MIDI functions --------
 
-def midi_create_input_filepath(tune_name, data_dir):
+def midi_construct_input_filepath(tune_name, data_dir):
     """Create a path to a MIDI file, given a tune name."""
     midi_filename = "{}.mid".format(tune_name)
     midi_filepath = os.path.join(data_dir, midi_filename)
     return midi_filepath
 
 
-def midi_create_output_filepath(tune_name, data_dir):
+def midi_construct_output_filepath(tune_name, data_dir):
     """Create a path to a MIDI output file, given a tune name."""
     curr_datetime = str(datetime.datetime.now())
     curr_datetime = re.sub("\W+", "", curr_datetime)
@@ -237,15 +237,18 @@ def lstm_load_weights(model, weights_filepath):
 
 
 def lstm_train_on_midi_input(tune_name,
-                             midi_data_dir,
-                             checkpoints_data_dir,
+                             midi_data_dir="../data/midi/",
+                             checkpoints_data_dir="../data/model/",
+                             input_filepath=None,
                              weights_filepath=None,
                              seq_length=10,
                              num_epochs=100,
                              mode="single_melody"):
     """Build and train an LSTM from an input MIDI file."""
     # Create note events
-    input_filepath = midi_create_input_filepath(tune_name, midi_data_dir)
+    if input_filepath is None:
+        input_filepath = midi_construct_input_filepath(tune_name,
+                                                       midi_data_dir)
     midi_track = midi_load_melody_from_file(input_filepath)
     note_pairs = midi_extract_note_pairs(midi_track)
     note_pairs = midi_normalize_velocities(note_pairs, interval=10)
@@ -337,6 +340,7 @@ def lstm_generate_midi_output(model, note_events,
                               batch_size=32,
                               random_seed=False,
                               add_seed_to_output=False,
+                              output_filepath=None,
                               midi_source_filepath=None,
                               tune_name="output",
                               data_dir="../data/output/"):
@@ -355,7 +359,8 @@ def lstm_generate_midi_output(model, note_events,
     print("Generated {} notes".format(num_notes))
 
     # Write output to MIDI file
-    output_filepath = midi_create_output_filepath(tune_name, data_dir)
+    if output_filepath is None:
+        output_filepath = midi_construct_output_filepath(tune_name, data_dir)
     midi_write_file(notes_out, output_filepath,
                     midi_source_filepath=midi_source_filepath)
     print("Wrote to MIDI file at {}".format(output_filepath))

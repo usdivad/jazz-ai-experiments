@@ -9,6 +9,8 @@ import re
 import mido
 # import numpy as np
 
+from . import db
+
 
 def construct_input_filepath(tune_name, data_dir):
     """Create a path to a MIDI file, given a tune name."""
@@ -56,23 +58,40 @@ def normalize_velocities(note_pairs, interval=10):
     return note_pairs
 
 
-def get_note_event_keys():
+def get_note_event_keys(mode="single_melody"):
     """Get keys for note events."""
-    # Don't use note off velocity to shrink possibilities,
-    # and don't use note off pitch because it's the same as note on pitch
-    keys = ("noteon_pitch", "noteon_velocity",
-            "noteon_time", "noteoff_time")
-    return keys
+    if mode == "single_melody":
+        # Don't use note off velocity to shrink possibilities,
+        # and don't use note off pitch because it's the same as note on pitch
+        return ("noteon_pitch", "noteon_velocity",
+                "noteon_time", "noteoff_time")
+    elif mode == "single_melody_harmony":
+        return ("noteon_pitch", "noteon_velocity",
+                "noteon_time", "noteoff_time",
+                "chord")
+    return ()
 
 
-def create_note_events(note_pairs):
+def create_note_events(note_pairs, mode="single_melody", chords=[]):
     """Create note events from note pairs.
 
     This is the base data structure for note manipulation.
     """
-    note_events = [(note_on.note, note_on.velocity,
-                    note_on.time, note_off.time)
-                   for note_on, note_off in note_pairs]
+    note_events = []
+    if mode == "single_melody":
+        note_events = [(note_on.note, note_on.velocity,
+                        note_on.time, note_off.time)
+                       for note_on, note_off in note_pairs]
+    elif mode == "single_melody_harmony":
+        if len(chords) < len(note_pairs):
+            print("ERROR: Number of chords must match number of melody notes!")
+            return note_events
+
+        note_events = [(note_on.note, note_on.velocity,
+                        note_on.time, note_off.time,
+                        chords[i])
+                       for i, (note_on, note_off) in enumerate(note_pairs)]
+
     return note_events
 
 
@@ -88,6 +107,12 @@ def map_note_to_int(note_events):
     note_to_int = dict((n, i) for i, n in enumerate(note_set))
     int_to_note = dict((i, n) for i, n in enumerate(note_set))
     return (note_to_int, int_to_note)
+
+
+def note_event_to_dict(note, mode):
+    """Convert a note event tuple to a dict."""
+    note_events_keys = get_note_event_keys(mode)
+    return dict((note_events_keys[i], note[i]) for i, _ in enumerate(note))
 
 
 def split_subsequences(note_events, seq_length=10):
@@ -106,6 +131,8 @@ def split_subsequences(note_events, seq_length=10):
 
 
 def write_file(note_events, output_filepath,
+               mode="single_melody",
+               time_multiplier=1,
                midi_source_filepath=None):
     """Write note events to MIDI file.
 
@@ -122,20 +149,27 @@ def write_file(note_events, output_filepath,
         midi_track = load_melody_from_file(midi_source_filepath)
         for message in midi_track[:4]:
             midi_track_out.append(message)
-        else:
-            pass
+    else:
+        pass
 
     # Add notes
     prev_time = 0
-    note_events_keys = get_note_event_keys()
+    note_events_keys = get_note_event_keys(mode=mode)
 
     # Note times get all bunched together, so we stretch them out
     # a little bit manually here...
-    time_multiplier = 2  # Art Pepper - Anthropology
-    time_multiplier = 0.02  # Coleman Hawkins - Body and Soul
+    # TODO: Revisit this to make it more robust
+    # time_multiplier = 2  # Art Pepper - Anthropology
+    # time_multiplier = 0.02  # Coleman Hawkins - Body and Soul
+    # time_multiplier = 2.5  # John Coltrane - Giant Steps
+    time_multiplier = time_multiplier
+
+    # Harmony (chord) settings
+    prev_chord = "NC"
+    chord_velocity = 64
 
     for note in note_events:
-        # Note on/off pairs
+        # Construct messages for note on/off pairs
         note = dict((note_events_keys[i], note[i]) for i, _ in enumerate(note))
         noteon_time = int(note["noteon_time"] * time_multiplier)
         noteoff_time = int(note["noteoff_time"] * time_multiplier)
@@ -143,14 +177,48 @@ def write_file(note_events, output_filepath,
         curr_time_noteoff = prev_time + noteoff_time
         # prev_time = curr_time_noteoff
         message_noteon = mido.Message("note_on",
+                                      channel=0,
                                       note=note["noteon_pitch"],
                                       velocity=note["noteon_velocity"],
                                       time=curr_time_noteon)
         message_noteoff = mido.Message("note_off",
+                                       channel=0,
                                        note=note["noteon_pitch"],
                                        velocity=note["noteon_velocity"],
                                        time=curr_time_noteoff)
+
+        # Append note on event
         midi_track_out.append(message_noteon)
+
+        # Write harmony (chords) as well
+        if mode == "single_melody_harmony":
+            curr_chord = note["chord"]
+            if curr_chord != prev_chord:
+                curr_pitches = db.chord_to_midi_pitches(curr_chord)
+                prev_pitches = db.chord_to_midi_pitches(prev_chord)
+
+                # Add note ons for current chord
+                for pitch in curr_pitches:
+                    message = mido.Message("note_on",
+                                           channel=1,
+                                           note=pitch,
+                                           velocity=chord_velocity,
+                                           time=0)  # time=curr_noteon
+                    midi_track_out.append(message)
+
+                # Add note offs for previous chord
+                for pitch in prev_pitches:
+                    message = mido.Message("note_off",
+                                           channel=1,
+                                           note=pitch,
+                                           velocity=chord_velocity,
+                                           time=0)  # time=curr_noteon
+                    midi_track_out.append(message)
+
+            prev_chord = curr_chord
+
+        # Append the note off event (we do this after appending harmony
+        # so that the harmony lines up with the current note on)
         midi_track_out.append(message_noteoff)
 
     # Save file to disk
@@ -159,3 +227,19 @@ def write_file(note_events, output_filepath,
     # for message in midi_track_out[4:20]:
     #     print(message)
     return output_filepath
+
+
+def calculate_note_times_seconds(input_filepath):
+    """Calculate times of note onsets (in seconds)."""
+    midi_file = mido.MidiFile(input_filepath)
+    midi_track = load_melody_from_file(input_filepath)
+    tempo = midi_track[1].tempo
+    # ppq = midi_track[3].clocks_per_click
+    # n32 = midi_track[3].notated_32nd_notes_per_beat
+    ppq = midi_file.ticks_per_beat
+    note_times = [mido.tick2second(msg.time, ppq, tempo)
+                  for msg in midi_track if "note" in msg.type]
+    note_times_summed = []
+    for i, t in enumerate(note_times):
+        note_times_summed.append(sum(note_times[:i]) + t)
+    return note_times_summed

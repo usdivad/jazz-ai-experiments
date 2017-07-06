@@ -8,6 +8,7 @@ import re
 import keras
 import numpy as np
 
+from . import db
 from . import midi
 
 
@@ -72,19 +73,37 @@ def train_on_midi_input(tune_name,
                         checkpoints_data_dir="../data/models/",
                         input_filepath=None,
                         weights_filepath=None,
+                        db_beats_filepath=None,
+                        db_melody_filepath=None,
                         seq_length=10,
                         num_epochs=100,
                         mode="single_melody"):
-    """Build and train an LSTM from an input MIDI file."""
-    # Create note events
+    """Build and train an LSTM from an input MIDI file.
+
+    To load weights, just pass in a weights_filepath.
+    If no additional training is needed, just set num_epochs to 0.
+    """
+    # Load MIDI file
     if input_filepath is None:
         input_filepath = midi.construct_input_filepath(tune_name,
                                                        midi_data_dir)
     midi_track = midi.load_melody_from_file(input_filepath)
     note_pairs = midi.extract_note_pairs(midi_track)
     note_pairs = midi.normalize_velocities(note_pairs, interval=10)
-    note_events = midi.create_note_events(note_pairs)
-    print("Created note events from {}".format(input_filepath))
+
+    # Get harmony data if need be
+    chords = []
+    if mode == "single_melody_harmony":
+        chords = db.get_harmony_for_melody(db_beats_filepath,
+                                           db_melody_filepath)
+
+    # Create note events
+    note_events = []
+    note_events = midi.create_note_events(note_pairs,
+                                          mode=mode,
+                                          chords=chords)
+    print("Created {} note events from "
+          "{} using mode {}".format(len(note_events), input_filepath, mode))
 
     # Format note data to feed into network
     note_set = midi.create_note_set(note_events)
@@ -105,7 +124,14 @@ def train_on_midi_input(tune_name,
     print("Created model")
 
     # Train LSTM, or load from weights
-    if weights_filepath is None:
+    if weights_filepath is not None:
+        model = load_model_weights(model, weights_filepath)
+        print("Loaded weights from {}".format(weights_filepath))
+    else:
+        print("No weights loaded (to load weights, "
+              "specify a `weights_filepath`)")
+
+    if num_epochs > 0:
         callbacks = setup_callbacks(tune_name, checkpoints_data_dir)
         model = fit_model(model, x, y,
                           num_epochs=num_epochs,
@@ -113,8 +139,7 @@ def train_on_midi_input(tune_name,
                           callbacks=callbacks)
         print("Trained model over {} epochs".format(num_epochs))
     else:
-        model = load_model_weights(model, weights_filepath)
-        print("Loaded weights from {}".format(weights_filepath))
+        print("No training needed (`num_epochs` specified as 0)")
 
     return (model, note_events, input_filepath)
 
@@ -184,6 +209,7 @@ def generate_midi_output(model, note_events,
                          mode="single_melody",
                          num_notes_to_generate=100,
                          batch_size=32,
+                         time_multiplier=1,
                          random_seed=False,
                          add_seed_to_output=False,
                          output_filepath=None,
@@ -208,6 +234,8 @@ def generate_midi_output(model, note_events,
     if output_filepath is None:
         output_filepath = midi.construct_output_filepath(tune_name, data_dir)
     midi.write_file(notes_out, output_filepath,
+                    mode=mode,
+                    time_multiplier=time_multiplier,
                     midi_source_filepath=midi_source_filepath)
     print("Wrote to MIDI file at {}".format(output_filepath))
-    return notes_out
+    return (notes_out, output_filepath)

@@ -44,10 +44,32 @@ def extract_note_messages(track):
 def extract_note_pairs(track):
     """Extract note on/off pairs from a MIDI track."""
     notes = extract_note_messages(track)
-    note_pairs = [(notes[i], notes[i + 1]) for i, _ in enumerate(notes[:-1])
-                  if notes[i].type == "note_on" and
-                  notes[i + 1].type == "note_off" and
-                  notes[i].note == notes[i + 1].note]
+    note_pairs = []
+
+    # TODO: Test that this method still works for the old modes
+    # `single_melody` and `single_melody_harmony`
+    for i, note in enumerate(notes):
+        if note.type == "note_on":
+            # Register our note on
+            note_on = note
+
+            # Find the earliest subsequent note off for this note on,
+            # and then create a note pair out of it
+            for other_note in notes[i:]:
+                if other_note.type == "note_off" and \
+                   other_note.note == note.note and \
+                   other_note.time != 0:
+                    note_off = other_note
+                    note_pairs.append((note_on, note_off))
+                    break
+
+    # Old method where we don't look beyond the note immediately following
+    # the note on event
+    # note_pairs = [(notes[i], notes[i + 1]) for i, _ in enumerate(notes[:-1])
+    #               if notes[i].type == "note_on" and
+    #               notes[i + 1].type == "note_off" and
+    #               notes[i].note == notes[i + 1].note]
+
     return note_pairs
 
 

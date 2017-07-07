@@ -41,39 +41,52 @@ def extract_note_messages(track):
             if msg.type == "note_on" or msg.type == "note_off"]
 
 
-def extract_note_pairs(track):
+def extract_note_pairs(track, mode):
     """Extract note on/off pairs from a MIDI track."""
     notes = extract_note_messages(track)
     note_pairs = []
 
-    # TODO: Test that this method still works for the old modes
-    # `single_melody` and `single_melody_harmony`
-    for i, note in enumerate(notes):
-        if note.type == "note_on":
-            # Register our note on
-            note_on = note
+    if mode == "drums":
+        # TODO: Test that this method still works for the old modes
+        # `single_melody` and `single_melody_harmony`
+        note_off_time = 32
+        for i, note in enumerate(notes):
+            if note.type == "note_on":
+                # Register our note on
+                note_on = note
 
-            # Find the earliest subsequent note off for this note on,
-            # and then create a note pair out of it
-            # note_off_time = 0
-            for other_note in notes[i:]:
-                if other_note.type == "note_off" and \
-                   other_note.note == note.note and \
-                   other_note.time != 0:
-                    note_off = other_note
-                    # note_off.time = note_off_time
-                    # note_off_time = 0
-                    note_pairs.append((note_on, note_off))
-                    break
-                # else:
-                #     note_off_time += other_note.time
+                # Just construct a note off manually
+                note_off = mido.Message("note_off",
+                                        channel=0,
+                                        note=note.note,
+                                        velocity=note.velocity,
+                                        time=note_off_time)
 
-    # Old method where we don't look beyond the note immediately following
-    # the note on event
-    # note_pairs = [(notes[i], notes[i + 1]) for i, _ in enumerate(notes[:-1])
-    #               if notes[i].type == "note_on" and
-    #               notes[i + 1].type == "note_off" and
-    #               notes[i].note == notes[i + 1].note]
+                # Add the pair to the mix
+                note_pairs.append((note_on, note_off))
+
+                # # Find the earliest subsequent note off for this note on,
+                # # and then create a note pair out of it
+                # # note_off_time = 0
+                # for other_note in notes[i:]:
+                #     if other_note.type == "note_off" and \
+                #        other_note.note == note.note and \
+                #        other_note.time != 0:
+                #         note_off = other_note
+                #         # note_off.time = note_off_time
+                #         # note_off_time = 0
+                #         note_pairs.append((note_on, note_off))
+                #         break
+                #     # else:
+                #     #     note_off_time += other_note.time
+    elif mode == "single_melody" or mode == "single_melody_harmony":
+        # Old method where we don't look beyond the note immediately following
+        # the note on event
+        note_pairs = [(notes[i], notes[i + 1])
+                      for i, _ in enumerate(notes[:-1])
+                      if notes[i].type == "note_on" and
+                      notes[i + 1].type == "note_off" and
+                      notes[i].note == notes[i + 1].note]
 
     return note_pairs
 

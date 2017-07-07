@@ -88,7 +88,7 @@ def train_on_midi_input(tune_name,
         input_filepath = midi.construct_input_filepath(tune_name,
                                                        midi_data_dir)
     midi_track = midi.load_melody_from_file(input_filepath)
-    note_pairs = midi.extract_note_pairs(midi_track)
+    note_pairs = midi.extract_note_pairs(midi_track, mode)
     note_pairs = midi.normalize_velocities(note_pairs, interval=10)
 
     # Get harmony data if need be

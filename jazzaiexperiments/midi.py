@@ -262,7 +262,9 @@ def write_file(note_events, output_filepath,
         #     while note
         #     # last_simultaneous_note_idx = note_idx
         #     # for i in range
+
         noteoff_messages = []
+        # prev_noteoff = []
         for i, note in enumerate(note_events[:-1]):
             # Construct current note on and off
             note = dict((note_events_keys[i], note[i])
@@ -275,34 +277,46 @@ def write_file(note_events, output_filepath,
                                           channel=0,
                                           note=note["noteon_pitch"],
                                           velocity=note["noteon_velocity"],
-                                          time=curr_time_noteon)
+                                          time=0)
             message_noteoff = mido.Message("note_off",
                                            channel=0,
                                            note=note["noteon_pitch"],
                                            velocity=note["noteon_velocity"],
-                                           time=curr_time_noteoff)
+                                           time=0)
 
-            # Add note on to track, note off to buffer
+            # Add note on to track before note offs
+            # midi_track_out.append(message_noteon)
+
+            # If necessary, add note offs from any previous notes
+            # (which may or may not have had simultaneous onsets)
+            if noteon_time > 0:
+                noteoff_messages[0].time = curr_time_noteon
+                midi_track_out.extend(noteoff_messages)
+                noteoff_messages = []
+
+            # Add note on to track AFTER note offs
             midi_track_out.append(message_noteon)
+
+            # Add note off to buffer
             noteoff_messages.append(message_noteoff)
 
             # Only add note offs to track if next note is not simultaneous
-            next_note = note_events[i + 1]
-            next_note = dict((note_events_keys[i], next_note[i])
-                             for i, _ in enumerate(next_note))
-            if next_note["noteon_time"] != 0:
-                for i, message in enumerate(noteoff_messages):
-                    if i > 0:
-                        message.time = 0  # Make note offs simultaneous too
-                    midi_track_out.append(message)
-                    noteoff_messages = []
+            # next_note = note_events[i + 1]
+            # next_note = dict((note_events_keys[i], next_note[i])
+            #                  for i, _ in enumerate(next_note))
+            # if next_note["noteon_time"] != 0:
+            #     for i, message in enumerate(noteoff_messages):
+            #         if i > 0:
+            #             message.time = 0  # Make note offs simultaneous too
+            #         midi_track_out.append(message)
+            #         noteoff_messages = []
 
     # Save file to disk
     midi_file_out.save(output_filepath)
 
     # for message in midi_track_out[4:20]:
     #     print(message)
-    return output_filepath
+    return (midi_file_out, output_filepath)
 
 
 def calculate_note_times_seconds(input_filepath):

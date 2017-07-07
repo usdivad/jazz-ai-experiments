@@ -302,7 +302,7 @@ def write_file(note_events, output_filepath,
 
             # If necessary, add note offs from any previous notes
             # (which may or may not have had simultaneous onsets)
-            if noteon_time > 0:
+            if noteon_time > 0 and len(noteoff_messages) > 0:
                 noteoff_messages[0].time = curr_time_noteon
                 midi_track_out.extend(noteoff_messages)
                 noteoff_messages = []

@@ -82,7 +82,7 @@ def normalize_velocities(note_pairs, interval=10):
 
 def get_note_event_keys(mode="single_melody"):
     """Get keys for note events."""
-    if mode == "single_melody":
+    if mode == "single_melody" or mode == "drums":
         # Don't use note off velocity to shrink possibilities,
         # and don't use note off pitch because it's the same as note on pitch
         return ("noteon_pitch", "noteon_velocity",
@@ -100,7 +100,7 @@ def create_note_events(note_pairs, mode="single_melody", chords=[]):
     This is the base data structure for note manipulation.
     """
     note_events = []
-    if mode == "single_melody":
+    if mode == "single_melody" or mode == "drums":
         note_events = [(note_on.note, note_on.velocity,
                         note_on.time, note_off.time)
                        for note_on, note_off in note_pairs]
@@ -186,62 +186,108 @@ def write_file(note_events, output_filepath,
     # time_multiplier = 2.5  # John Coltrane - Giant Steps
     time_multiplier = time_multiplier
 
-    # Harmony (chord) settings
-    prev_chord = "NC"
-    chord_velocity = 64
+    if mode == "single_melody" or mode == "single_melody_harmony":
+        # Harmony (chord) settings
+        prev_chord = "NC"
+        chord_velocity = 64
 
-    for note in note_events:
-        # Construct messages for note on/off pairs
-        note = dict((note_events_keys[i], note[i]) for i, _ in enumerate(note))
-        noteon_time = int(note["noteon_time"] * time_multiplier)
-        noteoff_time = int(note["noteoff_time"] * time_multiplier)
-        curr_time_noteon = prev_time + noteon_time
-        curr_time_noteoff = prev_time + noteoff_time
-        # prev_time = curr_time_noteoff
-        message_noteon = mido.Message("note_on",
-                                      channel=0,
-                                      note=note["noteon_pitch"],
-                                      velocity=note["noteon_velocity"],
-                                      time=curr_time_noteon)
-        message_noteoff = mido.Message("note_off",
-                                       channel=0,
-                                       note=note["noteon_pitch"],
-                                       velocity=note["noteon_velocity"],
-                                       time=curr_time_noteoff)
+        for note in note_events:
+            # Construct messages for note on/off pairs
+            note = dict((note_events_keys[i], note[i])
+                        for i, _ in enumerate(note))
+            noteon_time = int(note["noteon_time"] * time_multiplier)
+            noteoff_time = int(note["noteoff_time"] * time_multiplier)
+            curr_time_noteon = prev_time + noteon_time
+            curr_time_noteoff = prev_time + noteoff_time
+            # prev_time = curr_time_noteoff
+            message_noteon = mido.Message("note_on",
+                                          channel=0,
+                                          note=note["noteon_pitch"],
+                                          velocity=note["noteon_velocity"],
+                                          time=curr_time_noteon)
+            message_noteoff = mido.Message("note_off",
+                                           channel=0,
+                                           note=note["noteon_pitch"],
+                                           velocity=note["noteon_velocity"],
+                                           time=curr_time_noteoff)
 
-        # Append note on event
-        midi_track_out.append(message_noteon)
+            # Append note on event
+            midi_track_out.append(message_noteon)
 
-        # Write harmony (chords) as well
-        if mode == "single_melody_harmony":
-            curr_chord = note["chord"]
-            if curr_chord != prev_chord:
-                curr_pitches = db.chord_to_midi_pitches(curr_chord)
-                prev_pitches = db.chord_to_midi_pitches(prev_chord)
+            # Write harmony (chords) as well
+            if mode == "single_melody_harmony":
+                curr_chord = note["chord"]
+                if curr_chord != prev_chord:
+                    curr_pitches = db.chord_to_midi_pitches(curr_chord)
+                    prev_pitches = db.chord_to_midi_pitches(prev_chord)
 
-                # Add note ons for current chord
-                for pitch in curr_pitches:
-                    message = mido.Message("note_on",
-                                           channel=1,
-                                           note=pitch,
-                                           velocity=chord_velocity,
-                                           time=0)  # time=curr_noteon
-                    midi_track_out.append(message)
+                    # Add note ons for current chord
+                    for pitch in curr_pitches:
+                        message = mido.Message("note_on",
+                                               channel=1,
+                                               note=pitch,
+                                               velocity=chord_velocity,
+                                               time=0)  # time=curr_noteon
+                        midi_track_out.append(message)
 
-                # Add note offs for previous chord
-                for pitch in prev_pitches:
-                    message = mido.Message("note_off",
-                                           channel=1,
-                                           note=pitch,
-                                           velocity=chord_velocity,
-                                           time=0)  # time=curr_noteon
-                    midi_track_out.append(message)
+                    # Add note offs for previous chord
+                    for pitch in prev_pitches:
+                        message = mido.Message("note_off",
+                                               channel=1,
+                                               note=pitch,
+                                               velocity=chord_velocity,
+                                               time=0)  # time=curr_noteon
+                        midi_track_out.append(message)
 
-            prev_chord = curr_chord
+                prev_chord = curr_chord
 
-        # Append the note off event (we do this after appending harmony
-        # so that the harmony lines up with the current note on)
-        midi_track_out.append(message_noteoff)
+            # Append the note off event (we do this after appending harmony
+            # so that the harmony lines up with the current note on)
+            midi_track_out.append(message_noteoff)
+    elif mode == "drums":
+        # note_idx = 0
+        # while note_idx < len(note_events):
+        #     note_ons = []
+        #     note_offs = []
+        #     note_event = note_events[note_idx]
+        #     note_ons.append(note_event[0])
+        #     note_ons.append(note_event[1])
+        #     note_idx += 1
+        #     note_event = note_events[note_idx]
+        #     while note
+        #     # last_simultaneous_note_idx = note_idx
+        #     # for i in range
+        noteoff_messages = []
+        for i, note in enumerate(note_events[:-1]):
+            # Construct current note on and off
+            note = dict((note_events_keys[i], note[i])
+                        for i, _ in enumerate(note))
+            noteon_time = int(note["noteon_time"] * time_multiplier)
+            noteoff_time = int(note["noteoff_time"] * time_multiplier)
+            curr_time_noteon = prev_time + noteon_time
+            curr_time_noteoff = prev_time + noteoff_time
+            message_noteon = mido.Message("note_on",
+                                          channel=0,
+                                          note=note["noteon_pitch"],
+                                          velocity=note["noteon_velocity"],
+                                          time=curr_time_noteon)
+            message_noteoff = mido.Message("note_off",
+                                           channel=0,
+                                           note=note["noteon_pitch"],
+                                           velocity=note["noteon_velocity"],
+                                           time=curr_time_noteoff)
+
+            # Add note on to track, note off to buffer
+            midi_track_out.append(message_noteon)
+            noteoff_messages.append(message_noteoff)
+
+            # Only add note offs to track if next note is not simultaneous
+            next_note = note_events[i + 1]
+            next_note = dict((note_events_keys[i], next_note[i])
+                             for i, _ in enumerate(next_note))
+            if next_note["noteon_time"] != 0:
+                midi_track_out.extend(noteoff_messages)
+                noteoff_messages = []
 
     # Save file to disk
     midi_file_out.save(output_filepath)

@@ -55,13 +55,18 @@ def extract_note_pairs(track):
 
             # Find the earliest subsequent note off for this note on,
             # and then create a note pair out of it
+            # note_off_time = 0
             for other_note in notes[i:]:
                 if other_note.type == "note_off" and \
                    other_note.note == note.note and \
                    other_note.time != 0:
                     note_off = other_note
+                    # note_off.time = note_off_time
+                    # note_off_time = 0
                     note_pairs.append((note_on, note_off))
                     break
+                # else:
+                #     note_off_time += other_note.time
 
     # Old method where we don't look beyond the note immediately following
     # the note on event
@@ -286,8 +291,11 @@ def write_file(note_events, output_filepath,
             next_note = dict((note_events_keys[i], next_note[i])
                              for i, _ in enumerate(next_note))
             if next_note["noteon_time"] != 0:
-                midi_track_out.extend(noteoff_messages)
-                noteoff_messages = []
+                for i, message in enumerate(noteoff_messages):
+                    if i > 0:
+                        message.time = 0  # Make note offs simultaneous too
+                    midi_track_out.append(message)
+                    noteoff_messages = []
 
     # Save file to disk
     midi_file_out.save(output_filepath)
